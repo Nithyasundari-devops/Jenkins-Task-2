@@ -1,25 +1,97 @@
 pipeline {
     agent any
     
+    // Explicitly define triggers for GitHub webhooks
+    triggers {
+        pollSCM('') // Disable polling since we're using webhooks
+    }
+    
+    options {
+        timeout(time: 30, unit: 'MINUTES') // Set build timeout
+        buildDiscarder(logRotator(numToKeepStr: '10')) // Keep only last 10 builds
+    }
+    
     stages {
+        stage('Checkout') {
+            steps {
+                checkout([$class: 'GitSCM',
+                    branches: [[name: '*/main']], // Change to your actual branch name
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/your-username/your-repo.git', // Update with your repo
+                        credentialsId: 'your-jenkins-github-credentials' // Add credentials ID if private repo
+                    ]]
+                ])
+            }
+        }
+        
         stage('Build') {
             steps {
                 sh 'chmod +x hello.sh'
                 sh './hello.sh'
+                archiveArtifacts artifacts: 'hello.sh', fingerprint: true // Optional: archive the script
             }
         }
     }
-    
+
     post {
         always {
-            emailext (
-                subject: "Jenkins Build Notification: ${currentBuild.fullDisplayName}",
-                body: """<p>Build result: ${currentBuild.result}</p>
-                        <p>Check console output at <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
-                        <p>Changes: ${currentBuild.changeSets}</p>""",
-                to: 'recipient@example.com',
-                recipientProviders: [[$class: 'DevelopersRecipientProvider']]
-            )
+            script {
+                // Improved email with more details
+                def changes = ""
+                if(currentBuild.changeSets) {
+                    changes = currentBuild.changeSets.collect { cs ->
+                        cs.items.collect { item ->
+                            """
+                            <p>Commit: ${item.commitId}</p>
+                            <p>Author: ${item.author}</p>
+                            <p>Message: ${item.msg}</p>
+                            <p>Affected files:</p>
+                            <ul>
+                                ${item.affectedFiles.collect { file -> "<li>${file.path}</li>" }.join('')}
+                            </ul>
+                            """
+                        }.join('')
+                    }.join('')
+                } else {
+                    changes = "<p>No changes detected in this build.</p>"
+                }
+                
+                emailext (
+                    subject: "Jenkins Build ${currentBuild.result ?: 'SUCCESS'}: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                    body: """
+                        <h2>Build Details</h2>
+                        <p><strong>Status:</strong> ${currentBuild.result ?: 'SUCCESS'}</p>
+                        <p><strong>Duration:</strong> ${currentBuild.durationString.replace(' and counting', '')}</p>
+                        <p><strong>Build URL:</strong> <a href="${env.BUILD_URL}">${env.JOB_NAME} #${env.BUILD_NUMBER}</a></p>
+                        
+                        <h3>Changes</h3>
+                        ${changes}
+                        
+                        <h3>Console Output</h3>
+                        <p><a href="${env.BUILD_URL}console">View Full Console Output</a></p>
+                        
+                        <h3>Build Parameters</h3>
+                        <pre>${env.getEnvironment().findAll { k,v -> k.startsWith('JENKINS_') || k.startsWith('GIT_') }}</pre>
+                        """,
+                    to: 'recipient@example.com', // Update with real email
+                    replyTo: '$DEFAULT_REPLYTO',
+                    mimeType: 'text/html',
+                    recipientProviders: [
+                        [$class: 'DevelopersRecipientProvider'],
+                        [$class: 'RequesterRecipientProvider']
+                    ]
+                )
+            }
+        }
+        
+        failure {
+            slackSend(color: 'danger', message: "Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+        }
+        
+        success {
+            slackSend(color: 'good', message: "Build Succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
         }
     }
 }
+
