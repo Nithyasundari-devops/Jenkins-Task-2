@@ -1,0 +1,25 @@
+pipeline {
+    agent any
+    
+    stages {
+        stage('Build') {
+            steps {
+                sh 'chmod +x hello.sh'
+                sh './hello.sh'
+            }
+        }
+    }
+    
+    post {
+        always {
+            emailext (
+                subject: "Jenkins Build Notification: ${currentBuild.fullDisplayName}",
+                body: """<p>Build result: ${currentBuild.result}</p>
+                        <p>Check console output at <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
+                        <p>Changes: ${currentBuild.changeSets}</p>""",
+                to: 'recipient@example.com',
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+            )
+        }
+    }
+}
