@@ -6,10 +6,10 @@ pipeline {
             steps {
                 checkout([
                     $class: 'GitSCM',
-                    branches: [[name: '*/main']], // Use your branch name
+                    branches: [[name: '*/main']],
                     userRemoteConfigs: [[
                         url: 'https://github.com/Nithyasundari-devops/Jenkins-Task-2.git',
-                        credentialsId: 'github-token' // Must match credential ID
+                        credentialsId: 'github-token'
                     ]]
                 ])
             }
@@ -17,19 +17,22 @@ pipeline {
         
         stage('Build') {
             steps {
-                sh 'chmod +x hello.sh'
-                sh './hello.sh'
+                sh 'ls -la' // Debug: List files
+                sh 'cat hello.sh' // Debug: View script content
+                sh 'chmod +x hello.sh && ./hello.sh'
             }
         }
     }
     
     post {
         always {
-            emailext (
-                subject: "Build ${currentBuild.result}: ${env.JOB_NAME}",
-                body: "See: ${env.BUILD_URL}",
-                to: 'nithyasundari277@gmail.com' // Your actual email
-            )
+            mail to: 'nithyasundari277@gmail.com',
+                 subject: "Build ${currentBuild.result?:'SUCCESS'} - ${env.JOB_NAME}",
+                 body: """
+                    Build: ${env.BUILD_URL}
+                    Status: ${currentBuild.result?:'SUCCESS'}
+                    Commit: ${env.GIT_COMMIT?:'N/A'}
+                 """
         }
     }
 }
